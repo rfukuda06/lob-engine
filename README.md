@@ -12,6 +12,49 @@ market simulator, and a benchmark that measures raw engine throughput —
 **16 million orders per second on a single core, about 62 ns per order.**
 Standard library only, no external dependencies.
 
+## Market-Making & Microstructure Lab
+
+Beyond matching orders, this project runs a **market maker inside its own book** and
+measures whether the strategy survives *adverse selection* — the core risk of
+providing liquidity. A latent "fair value" drifts exogenously; **informed** traders
+trade toward it and pick off stale quotes, while **noise** traders don't. The market
+maker (inventory-skew, or the **Avellaneda–Stoikov** optimal model) quotes off the
+observable book mid only — it never sees fair value, which is exactly why it can be
+picked off.
+
+```bash
+./build/orderbook --mm-sim 20000 --seed 42 --policy as --informed-frac 30 --out mm.csv
+```
+
+Reported metrics:
+- **Markout PnL** — a fill's PnL measured a few steps later vs. fair value; negative = adverse selection.
+- **Effective vs. realized spread** — taker cost vs. maker capture net of impact; their gap *is* adverse selection.
+- **Kyle's λ** — price impact per unit of signed order flow.
+- **VPIN** — volume-bucketed order-flow toxicity.
+
+The CSV (`mm.csv`) has one row per step (fair, mid, microprice, inventory, PnL, …) for charting a PnL / inventory curve.
+
+### Sample result: the adverse-selection gradient
+
+Turning up the fraction of **informed** flow is the whole experiment. As stale quotes
+get picked off more often, the market maker's edge erodes, adverse selection climbs, and
+inventory is driven into its risk cap. Inventory-skew maker, 20 000 steps, seed 42:
+
+| Informed flow | MM fills | Final PnL vs. fair (ticks·shares) | Adverse selection (ticks) | Max \|inventory\| |
+|---|---|---|---|---|
+| 0 % (pure noise) | 773 | **+4 179** | 0.17 | 6 |
+| 15 % | 641 | **+431** | 14.33 | 52 |
+| 30 % | 88 | **−3 030** | 24.14 | 51 |
+
+With no informed flow the maker profitably captures the spread while barely carrying
+inventory; as toxic flow rises, PnL flips negative and the position is pushed to the
+cap. (Numbers are seed- and machine-specific; regenerate with `--informed-frac`.)
+
+### Why this is different from a "trading bot"
+This is a **market-microstructure** study on a hand-built order book — passive quoting,
+queue dynamics, and adverse selection — not a directional alpha strategy. It deliberately
+keeps strategy/PnL plumbing thin; the focus is what only a real order book can show.
+
 ## Interactive REPL
 
 Running `./build/orderbook` drops you into a REPL against a simulated market
@@ -99,8 +142,9 @@ rested. Invariant: after any submit completes the book is never crossed.
 
     brew install cmake                # once
     cmake -B build && cmake --build build
-    ./build/orderbook_tests           # 30 tests
+    ./build/orderbook_tests           # engine + microstructure unit tests
     ./build/orderbook                 # interactive REPL
+    ./build/orderbook --mm-sim 20000 --policy as --informed-frac 30 --out mm.csv
 
     # benchmark (use an optimized build for numbers)
     cmake -B build-release -DCMAKE_BUILD_TYPE=Release
