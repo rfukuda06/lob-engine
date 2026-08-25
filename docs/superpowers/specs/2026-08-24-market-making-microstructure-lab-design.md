@@ -139,13 +139,14 @@ public:
 **FlowModel** — mixes noise and informed order flow, driving the engine each step:
 ```cpp
 struct FlowParams {
-    double informedFraction = 0.15; // P(an arriving order is informed)
-    double fairValueVol     = 2.0;  // ticks/step
-    double startPrice       = 10000;// $100.00 in ticks (matches existing sim reference)
-    int    ordersPerStep    = 3;    // arrival count per step (can be randomized)
+    double informedFraction = 0.15;   // P(an arriving order is informed)
+    double noiseMarketFraction = 0.4; // P(a noise arrival is marketable vs a passive limit)
+    double fairValueVol     = 2.0;    // ticks/step
+    Price  startPrice       = 10000;  // $100.00 in ticks (integer, matches existing sim reference)
+    int    ordersPerStep    = 3;      // arrival count per step
     Quantity minSize = 1, maxSize = 10;
-    Price  noiseSpreadTicks = 5;    // how far around mid noise limits are placed
-    Price  informedEdgeTicks = 1;   // fair must beat the touch by this to trigger informed take
+    Price  noiseSpreadTicks = 5;      // how far around mid noise limits are placed
+    Price  informedEdgeTicks = 1;     // fair must beat the touch by this to trigger informed take
 };
 
 class FlowModel {
@@ -162,7 +163,7 @@ public:
 
 Generation logic per arriving order:
 - With probability `informedFraction`, it is **informed**: compare `fair_` to the book. If `fair > bestAsk + informedEdgeTicks` → **buy** to lift the offer (IOC/market, size drawn from `[minSize,maxSize]`). If `fair < bestBid − informedEdgeTicks` → **sell** to hit the bid. Otherwise the informed trader is indifferent and posts nothing (or a passive order). Informed flow trades *toward* true value, picking off stale quotes → **this is the adverse selection.**
-- Otherwise it is **noise**: random side; mostly a limit placed a few ticks around mid (`noiseSpreadTicks`), occasionally a small market order. Uninformed → this is where the market maker *earns* the spread.
+- Otherwise it is **noise**: random side; with probability `noiseMarketFraction` a **marketable** order that crosses the spread, else a passive limit a few ticks around mid (`noiseSpreadTicks`). The marketable component is essential — a limit-only noise stream never crosses the maker's quotes, so the MM would get zero fills. Uninformed marketable flow is where the market maker *earns* the spread.
 
 Determinism: all draws from a single seeded `std::mt19937`; the fair-value walk advances every step regardless of book state (so seeded runs stay in lockstep).
 
@@ -194,8 +195,9 @@ public:
     // Each step: cancel stale quotes and post fresh post-only quotes.
     // NOTE: deliberately does NOT receive fair value — the MM quotes off the book mid only.
     void requote(MatchingEngine& engine, const OrderBook& book, long t, long T);
-    // Attribute fills from this step's trade stream (matches makerId ∈ our ids).
-    void onTrades(const std::vector<Trade>& trades);
+    // Attribute fills from this step's trade stream (matches makerId ∈ our ids);
+    // `t` stamps each fill for markout analysis.
+    void onTrades(const std::vector<Trade>& trades, long t);
     Quantity  inventory() const { return inventory_; }
     long long cash() const { return cash_; }
     double markToMarket(Price mark) const;  // cash + inventory*mark, in tick·qty units
@@ -236,13 +238,16 @@ Read-only. Subscribes to the step loop: the trade stream + a per-step snapshot (
 ```cpp
 class Analytics {
 public:
-    void onTrades(const std::vector<Trade>& trades, Price fair, Price mid, long t);
+    // takerSide is needed to sign order flow; the driver knows it per submission.
+    void onTrades(Side takerSide, const std::vector<Trade>& trades, double mid, long t);
     void recordStep(const OrderBook& book, Price fair, const MarketMaker& mm, long t);
-    void finalize();                 // resolve markouts/realized spread, run λ regression, VPIN
-    void printSummary(std::ostream&) const;
-    void writeCsv(const std::string& path) const;
+    Summary finalize(const std::vector<MmFill>& mmFills) const;  // markout, spread, λ, VPIN, OFI recorded per-step
+    void printSummary(const Summary& s) const;
+    void writeCsv(const std::string& path) const;   // per-step series incl. an `ofi` column
 };
 ```
+
+> Note: OFI is an inherently per-step series (recorded in `recordStep`, exported in the CSV `ofi` column), not a single summary scalar. The other market metrics reduce to summary scalars in `finalize`.
 CSV columns (one row/step): `t, fair, bid, ask, mid, microprice, ofi, mm_inventory, mm_cash, pnl_mid, pnl_fair`, plus a trades side-table or fill markers sufficient to chart the PnL and inventory paths.
 
 ### 5.5 `main.cpp` — the `--mm-sim` mode & CLI
@@ -269,13 +274,14 @@ seed initial resting liquidity around startPrice
 for t in 1..N:
     flow.stepFairValue()                       # exogenous true value advances (MM cannot see it)
     mm.requote(engine, book, t, N)             # cancel stale quotes; post fresh post-only bid/ask (off book mid)
+    stepMid = mid(book) or fair                # observable mid captured before flow
     for req in flow.generate(book):            # noise + informed arrivals hit the book
         res = engine.submit(req)               # limit / market / IOC as specified
-        analytics.onTrades(res.trades, fair, mid, t)
-        mm.onTrades(res.trades)                # attribute any fills to the MM
+        analytics.onTrades(req.side, res.trades, stepMid, t)
+        mm.onTrades(res.trades, t)             # attribute any fills to the MM
     analytics.recordStep(book, fair, mm, t)    # per-step snapshot
-analytics.finalize()
-analytics.printSummary(); analytics.writeCsv(out)
+summary = analytics.finalize(mm.fills())
+analytics.printSummary(summary); analytics.writeCsv(out)
 ```
 
 **Ordering rationale:** the MM quotes *before* flow arrives, so informed flow can pick off the MM's now-stale quotes when `fair` has moved — reproducing the real adverse-selection dynamic. The MM re-quotes each step, so it continuously reprices toward the (unobserved-by-it) fair value using only the book it can see.
