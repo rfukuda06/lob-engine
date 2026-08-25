@@ -31,11 +31,15 @@ MarketMaker::Quotes MarketMaker::computeQuotes(const OrderBook& book, long t,
         reservation = mid - static_cast<double>(inventory_) * p_.inventorySkewK;
         halfSpread = static_cast<double>(p_.baseHalfSpread);
         (void)t; (void)T;
-    } else {
-        // Avellaneda-Stoikov — implemented in Task 5. Fall back to skew for now.
-        reservation = mid - static_cast<double>(inventory_) * p_.inventorySkewK;
-        halfSpread = static_cast<double>(p_.baseHalfSpread);
-        (void)t; (void)T;
+    } else {  // MMPolicy::AvellanedaStoikov
+        double tau = 1.0;
+        if (p_.horizonSteps > 0) {
+            tau = static_cast<double>(p_.horizonSteps - t) / static_cast<double>(p_.horizonSteps);
+            if (tau < 0.0) tau = 0.0;
+        }
+        double s2 = p_.sigma * p_.sigma;
+        reservation = mid - static_cast<double>(inventory_) * p_.gamma * s2 * tau;
+        halfSpread = 0.5 * p_.gamma * s2 * tau + (1.0 / p_.gamma) * std::log(1.0 + p_.gamma / p_.kappa);
     }
 
     Price bid = static_cast<Price>(std::llround(reservation - halfSpread));
