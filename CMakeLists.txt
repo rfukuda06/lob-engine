@@ -15,6 +15,7 @@ set(CORE_SOURCES
     src/flow.cpp
     src/market_maker.cpp
     src/analytics.cpp
+    src/mm_sim.cpp
 )
 
 add_executable(orderbook src/main.cpp ${CORE_SOURCES})
@@ -30,9 +31,13 @@ add_executable(orderbook_tests
     tests/test_flow.cpp
     tests/test_market_maker.cpp
     tests/test_analytics.cpp
+    tests/test_mm_sim.cpp
     ${CORE_SOURCES}
 )
 target_include_directories(orderbook_tests PRIVATE src tests)
 
 enable_testing()
-add_test(NAME all_tests COMMAND orderbook_tests)
+# Run from the source root so tests that use repo-relative paths (e.g. the
+# analytics CSV written to build/) resolve the same way under ctest as they do
+# when orderbook_tests is invoked directly from the project root.
+add_test(NAME all_tests COMMAND orderbook_tests WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
