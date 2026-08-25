@@ -12,6 +12,7 @@ set(CORE_SOURCES
     src/simulator.cpp
     src/repl.cpp
     src/benchmark.cpp
+    src/flow.cpp
 )
 
 add_executable(orderbook src/main.cpp ${CORE_SOURCES})
@@ -24,6 +25,7 @@ add_executable(orderbook_tests
     tests/test_display.cpp
     tests/test_simulator.cpp
     tests/test_repl.cpp
+    tests/test_flow.cpp
     ${CORE_SOURCES}
 )
 target_include_directories(orderbook_tests PRIVATE src tests)
