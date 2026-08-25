@@ -6,7 +6,14 @@
 
 namespace lob {
 
-void Analytics::onTrades(Side, const std::vector<Trade>&, double, long) {}  // stub (Task 7)
+void Analytics::onTrades(Side takerSide, const std::vector<Trade>& trades,
+                         double mid, long t) {
+    int sign = takerSide == Side::Buy ? 1 : -1;
+    for (const Trade& tr : trades) {
+        trades_.push_back({t, tr.price, mid, sign, tr.quantity});
+        pendingSignedVolume_ += static_cast<Quantity>(sign) * tr.quantity;
+    }
+}
 
 void Analytics::recordStep(const OrderBook& book, Price fair,
                            const MarketMaker& mm, long t) {
@@ -64,6 +71,11 @@ double fairAt(const std::vector<StepRecord>& steps, long t) {
     return static_cast<double>(steps[static_cast<std::size_t>(t - 1)].fair);
 }
 
+double midAtStep(const std::vector<StepRecord>& steps, long t) {
+    if (t < 1 || static_cast<std::size_t>(t) > steps.size()) return 0.0;
+    return steps[static_cast<std::size_t>(t - 1)].mid;
+}
+
 double averageMarkout(const std::vector<StepRecord>& steps,
                       const std::vector<MmFill>& fills, long horizon) {
     double sum = 0.0;
@@ -116,6 +128,63 @@ Summary Analytics::finalize(const std::vector<MmFill>& mmFills) const {
     s.markout1 = averageMarkout(steps_, mmFills, 1);
     s.markout5 = averageMarkout(steps_, mmFills, 5);
     s.markout20 = averageMarkout(steps_, mmFills, 20);
+
+    // --- Market microstructure metrics ---
+    // Effective spread (taker cost) and realized spread (net of impact at horizon d).
+    const long kRealizedHorizon = 5;
+    if (!trades_.empty()) {
+        double effSum = 0.0, realSum = 0.0;
+        long realN = 0;
+        for (const MarketTrade& mt : trades_) {
+            effSum += 2.0 * mt.signedTaker * (static_cast<double>(mt.price) - mt.midAtTrade);
+            long tf = mt.t + kRealizedHorizon;
+            if (static_cast<std::size_t>(tf) <= steps_.size()) {
+                double midFuture = midAtStep(steps_, tf);
+                realSum += 2.0 * mt.signedTaker * (static_cast<double>(mt.price) - midFuture);
+                ++realN;
+            }
+        }
+        s.effectiveSpread = effSum / static_cast<double>(trades_.size());
+        s.realizedSpread = realN > 0 ? realSum / static_cast<double>(realN) : 0.0;
+        s.adverseSelection = s.effectiveSpread - s.realizedSpread;
+    }
+
+    // Kyle's lambda: OLS slope of delta-mid on signed volume across steps.
+    if (steps_.size() >= 2) {
+        double sx = 0, sy = 0, sxx = 0, sxy = 0;
+        long n = 0;
+        for (std::size_t i = 1; i < steps_.size(); ++i) {
+            double x = static_cast<double>(steps_[i].signedVolume);
+            double y = steps_[i].mid - steps_[i - 1].mid;
+            sx += x; sy += y; sxx += x * x; sxy += x * y; ++n;
+        }
+        double denom = n * sxx - sx * sx;
+        if (denom != 0.0) s.kyleLambda = (n * sxy - sx * sy) / denom;
+    }
+
+    // VPIN: bucket trades by cumulative volume; average |buy-sell|/bucketVol.
+    if (!trades_.empty()) {
+        Quantity totalVol = 0;
+        for (const MarketTrade& mt : trades_) totalVol += mt.qty;
+        const int kBuckets = 20;
+        Quantity bucketVol = totalVol / kBuckets;
+        if (bucketVol > 0) {
+            double vpinSum = 0.0;
+            int buckets = 0;
+            Quantity acc = 0, buy = 0, sell = 0;
+            for (const MarketTrade& mt : trades_) {
+                if (mt.signedTaker > 0) buy += mt.qty; else sell += mt.qty;
+                acc += mt.qty;
+                if (acc >= bucketVol) {
+                    Quantity diff = buy > sell ? buy - sell : sell - buy;
+                    vpinSum += static_cast<double>(diff) / static_cast<double>(acc);
+                    ++buckets;
+                    acc = 0; buy = 0; sell = 0;
+                }
+            }
+            s.vpin = buckets > 0 ? vpinSum / buckets : 0.0;
+        }
+    }
     return s;
 }
 

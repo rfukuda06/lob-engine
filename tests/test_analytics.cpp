@@ -81,3 +81,47 @@ TEST(ofi_reflects_top_of_book_queue_changes) {
     // eb = 150 (>= prev bid) - 100 (<= prev bid) = 50; ea = 0 -> ofi = 50.
     CHECK_EQ((long long)an.steps().back().ofi, 50);
 }
+
+TEST(effective_spread_measures_taker_cost) {
+    lob::Analytics an;
+    lob::MatchingEngine e; e.submitLimit(lob::Side::Buy, 9995, 100); e.submitLimit(lob::Side::Sell, 10005, 100);
+    lob::MarketMaker mm(lob::MMPolicy::InventorySkew, {});
+    // A buyer-initiated trade at 10005 when mid was 10000: effective = 2*|10005-10000| = 10.
+    an.onTrades(lob::Side::Buy, {{999, 111, 10005, 10}}, 10000.0, 1);
+    an.recordStep(e.book(), 10000, mm, 1);
+    lob::Summary s = an.finalize(mm.fills());
+    CHECK(s.effectiveSpread > 9.0 && s.effectiveSpread < 11.0);
+}
+
+TEST(kyle_lambda_is_positive_when_signed_volume_moves_price) {
+    // Kyle's lambda = OLS slope of delta-mid on per-step signed volume. The
+    // regressor must VARY (constant signed volume -> zero variance -> slope 0),
+    // and the mid must move by an amount proportional to that step's signed volume.
+    lob::Analytics an;
+    lob::MarketMaker mm(lob::MMPolicy::InventorySkew, {});
+    long midLevel = 10000;
+    for (long t = 1; t <= 20; ++t) {
+        lob::Quantity q = (t % 2 == 0) ? 5 : 15;   // signed buy volume alternates -> variance
+        an.onTrades(lob::Side::Buy, {{999, 111, midLevel, q}}, (double)midLevel, t);
+        midLevel += q;                             // price impact: mid rises by that volume
+        lob::MatchingEngine et;
+        et.submitLimit(lob::Side::Buy, midLevel - 5, 100);
+        et.submitLimit(lob::Side::Sell, midLevel + 5, 100);  // mid = midLevel
+        an.recordStep(et.book(), midLevel, mm, t);
+    }
+    // Each step's delta-mid equals its signed volume -> slope ~ 1 > 0.
+    lob::Summary s = an.finalize(mm.fills());
+    CHECK(s.kyleLambda > 0.0);
+}
+
+TEST(vpin_is_high_for_one_sided_flow) {
+    lob::Analytics an;
+    lob::MatchingEngine e; e.submitLimit(lob::Side::Buy, 9995, 100); e.submitLimit(lob::Side::Sell, 10005, 100);
+    lob::MarketMaker mm(lob::MMPolicy::InventorySkew, {});
+    for (long t = 1; t <= 50; ++t) {
+        an.onTrades(lob::Side::Buy, {{999, 111, 10000, 10}}, 10000.0, t);  // all buys
+        an.recordStep(e.book(), 10000, mm, t);
+    }
+    lob::Summary s = an.finalize(mm.fills());
+    CHECK(s.vpin > 0.8);  // fully one-sided flow -> toxicity near 1
+}
