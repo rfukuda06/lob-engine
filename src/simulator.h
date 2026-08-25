@@ -7,14 +7,6 @@
 
 namespace lob {
 
-// An order the simulator wants to submit (no id yet — the engine assigns).
-struct OrderRequest {
-    OrderType type;
-    Side side;
-    Price price;  // 0 for market orders
-    Quantity quantity;
-};
-
 // Naive random order flow around a reference price. Not a market model —
 // its only job is to make the book move plausibly (documented assumption).
 class MarketSimulator {

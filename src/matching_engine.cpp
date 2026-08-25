@@ -38,19 +38,37 @@ Quantity MatchingEngine::matchAgainstBook(Side takerSide, OrderId takerId,
     return remaining;
 }
 
-SubmitResult MatchingEngine::submitLimit(Side side, Price limit,
-                                         Quantity qty) {
+SubmitResult MatchingEngine::submitLimit(Side side, Price limit, Quantity qty,
+                                         TimeInForce tif, bool postOnly) {
     assert(limit > 0 && qty > 0);  // REPL/simulator validate before calling
     SubmitResult result;
     result.id = nextId_++;
+    if (postOnly) {
+        const Order* opp = book_.peekFront(opposite(side));
+        if (opp != nullptr && crosses(side, limit, opp->price)) {
+            result.cancelledQty = qty;   // would cross -> reject, nothing trades/rests
+            result.rejected = true;
+            return result;
+        }
+    }
     Quantity remaining =
         matchAgainstBook(side, result.id, qty, limit, result.trades);
     if (remaining > 0) {
-        book_.addOrder({result.id, side, OrderType::Limit, limit, remaining});
-        result.restedQty = remaining;
+        if (tif == TimeInForce::IOC) {
+            result.cancelledQty = remaining;  // IOC: drop the remainder
+        } else {
+            book_.addOrder({result.id, side, OrderType::Limit, limit, remaining});
+            result.restedQty = remaining;
+        }
     }
     assertNotCrossed();
     return result;
+}
+
+SubmitResult MatchingEngine::submit(const OrderRequest& req) {
+    return req.type == OrderType::Limit
+               ? submitLimit(req.side, req.price, req.quantity, req.tif, req.postOnly)
+               : submitMarket(req.side, req.quantity);
 }
 
 SubmitResult MatchingEngine::submitMarket(Side side, Quantity qty) {

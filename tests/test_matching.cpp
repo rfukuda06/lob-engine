@@ -1,5 +1,6 @@
 #include "test_framework.h"
 
+#include <optional>
 #include <random>
 
 #include "matching_engine.h"
@@ -162,4 +163,47 @@ TEST(s12_random_burst_never_crossed) {
         auto ask = engine.book().bestAsk();
         if (bid && ask) CHECK(*bid < *ask);
     }
+}
+
+TEST(post_only_rejects_when_it_would_cross) {
+    lob::MatchingEngine engine;
+    engine.submitLimit(lob::Side::Sell, 10005, 10);  // resting ask at 100.05
+    // A post-only buy at 100.05 would cross the ask -> reject, no trade, no rest.
+    lob::SubmitResult r = engine.submitLimit(lob::Side::Buy, 10005, 10,
+                                             lob::TimeInForce::GTC, /*postOnly=*/true);
+    CHECK(r.rejected);
+    CHECK_EQ(r.trades.size(), 0);
+    CHECK_EQ(r.restedQty, 0);
+    CHECK_EQ(r.cancelledQty, 10);
+}
+
+TEST(post_only_rests_when_it_would_not_cross) {
+    lob::MatchingEngine engine;
+    engine.submitLimit(lob::Side::Sell, 10005, 10);  // ask at 100.05
+    lob::SubmitResult r = engine.submitLimit(lob::Side::Buy, 10000, 10,
+                                             lob::TimeInForce::GTC, /*postOnly=*/true);
+    CHECK(!r.rejected);
+    CHECK_EQ(r.trades.size(), 0);
+    CHECK_EQ(r.restedQty, 10);
+    CHECK(engine.book().bestBid() == std::optional<lob::Price>(10000));
+}
+
+TEST(ioc_matches_then_drops_remainder) {
+    lob::MatchingEngine engine;
+    engine.submitLimit(lob::Side::Sell, 10005, 4);  // only 4 available
+    lob::SubmitResult r = engine.submitLimit(lob::Side::Buy, 10005, 10,
+                                             lob::TimeInForce::IOC, /*postOnly=*/false);
+    CHECK_EQ(r.trades.size(), 1);
+    CHECK_EQ(r.trades[0].quantity, 4);
+    CHECK_EQ(r.restedQty, 0);        // IOC never rests
+    CHECK_EQ(r.cancelledQty, 6);     // remainder dropped
+    CHECK(!engine.book().bestBid());
+}
+
+TEST(submit_dispatches_on_request_type) {
+    lob::MatchingEngine engine;
+    lob::OrderRequest limitReq{lob::OrderType::Limit, lob::Side::Buy, 10000, 5};
+    lob::SubmitResult r = engine.submit(limitReq);
+    CHECK_EQ(r.restedQty, 5);
+    CHECK(engine.book().bestBid() == std::optional<lob::Price>(10000));
 }

@@ -14,6 +14,7 @@ constexpr Price TICKS_PER_DOLLAR = 100;
 
 enum class Side { Buy, Sell };
 enum class OrderType { Limit, Market };
+enum class TimeInForce { GTC, IOC };  // GTC: rest remainder; IOC: drop remainder
 
 struct Order {
     OrderId id;
@@ -28,6 +29,16 @@ struct Trade {
     OrderId makerId;    // the resting order
     Price price;        // always the maker's price
     Quantity quantity;
+};
+
+// A request to submit an order (no id yet — the engine assigns one).
+struct OrderRequest {
+    OrderType type;
+    Side side;
+    Price price;      // 0 for market orders
+    Quantity quantity;
+    TimeInForce tif = TimeInForce::GTC;
+    bool postOnly = false;
 };
 
 }  // namespace lob
