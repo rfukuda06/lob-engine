@@ -1,13 +1,13 @@
 # Limit Order Book & Matching Engine
 
 This is a single-threaded C++20 implementation of the two pieces at the
-heart of every electronic exchange: a limit order book that holds resting 
-orders in price-time priority and a matching engine that crosses incoming 
-orders against it. Limit orders rest in the book, market orders sweep the 
+heart of every electronic exchange: a limit order book that holds resting
+orders in price-time priority and a matching engine that crosses incoming
+orders against it. Limit orders rest in the book, market orders sweep the
 best available levels, and trades execute at the resting order's price with
 earlier orders at the same price filling first.
 
-There are two modes: an interactive REPL where you trade against a seeded 
+There are two modes: an interactive REPL where you trade against a seeded
 market simulator, and a benchmark that measures raw engine throughput —
 **16 million orders per second on a single core, about 62 ns per order.**
 Standard library only, no external dependencies.
@@ -23,6 +23,8 @@ observable book mid only — it never sees fair value, which is exactly why it c
 picked off.
 
 ```bash
+# every strategy knob (gamma/sigma/kappa/skew-k/half-spread/max-inventory) is
+# tunable from the CLI; --json prints a machine-readable summary. See --help.
 ./build/orderbook --mm-sim 20000 --seed 42 --policy as --informed-frac 30 --out mm.csv
 ```
 
@@ -32,23 +34,40 @@ Reported metrics:
 - **Kyle's λ** — price impact per unit of signed order flow.
 - **VPIN** — volume-bucketed order-flow toxicity.
 
-The CSV (`mm.csv`) has one row per step (fair, mid, microprice, inventory, PnL, …) for charting a PnL / inventory curve.
+The CSV has one row per step (fair, mid, microprice, inventory, PnL, …); `scripts/plot_mm.py` turns it into the figure below.
 
 ### Sample result: the adverse-selection gradient
 
-Turning up the fraction of **informed** flow is the whole experiment. As stale quotes
-get picked off more often, the market maker's edge erodes, adverse selection climbs, and
-inventory is driven into its risk cap. Inventory-skew maker, 20 000 steps, seed 42:
+Turning up the fraction of **informed** flow is the whole experiment. Averaged over
+12 seeds (inventory-skew maker, 20 000 steps; ± is standard error across seeds):
 
 | Informed flow | MM fills | Final PnL vs. fair (ticks·shares) | Adverse selection (ticks) | Max \|inventory\| |
 |---|---|---|---|---|
-| 0 % (pure noise) | 773 | **+4 179** | 0.17 | 6 |
-| 15 % | 641 | **+431** | 14.33 | 52 |
-| 30 % | 88 | **−3 030** | 24.14 | 51 |
+| 0% (pure noise) | 872 ± 34 | **+4024 ± 175** | 0.2 ± 0.0 | 6 ± 0 |
+| 15% | 934 ± 248 | −827 ± 3009 | 17.2 ± 4.1 | 44 ± 5 |
+| 30% | 182 ± 33 | +518 ± 2762 | 49.3 ± 11.7 | 50 ± 2 |
 
-With no informed flow the maker profitably captures the spread while barely carrying
-inventory; as toxic flow rises, PnL flips negative and the position is pushed to the
-cap. (Numbers are seed- and machine-specific; regenerate with `--informed-frac`.)
+The error bars *are* the result:
+- **Adverse selection rises sharply and reliably** with informed flow (0.2 → 17 → 49 ticks) — a robust, monotone gradient.
+- **Under pure noise the maker cleanly captures the spread** (+4024 ± 175) while barely carrying inventory.
+- **Under toxic flow, terminal PnL is dominated by inventory risk** — the standard error dwarfs the mean, so any single seeded run is an unreliable read. That uncertainty *is* the risk of quoting into informed flow.
+
+Here is one run of the lab (`--seed 3 --informed-frac 10`): the maker profitably
+captures spread against light toxic flow, its inventory mean-reverting via skew.
+
+![Market-making lab overview](docs/mm_overview.png)
+
+The top-left panel is the thesis in one picture: the latent **fair value wanders, the
+observable book mid is much stickier, and the maker only ever sees the mid** — the gap
+between the two lines is its information disadvantage.
+
+Regenerate the table and figure (numbers are seed- and machine-specific):
+
+```bash
+python3 scripts/sweep.py --policy inventory --steps 20000 --seeds 12          # the table
+./build/orderbook --mm-sim 20000 --seed 3 --policy inventory --informed-frac 10 --out mm.csv
+python3 scripts/plot_mm.py mm.csv --out docs/mm_overview.png                   # the figure
+```
 
 ### Why this is different from a "trading bot"
 This is a **market-microstructure** study on a hand-built order book — passive quoting,
@@ -112,8 +131,8 @@ identical trade/resting counts on every run.
 
 ## Design
 
-Prices are int64 ticks (1 tick = $0.01). This fixed-point representation 
-avoids floating-point rounding errors and enables exact price comparison 
+Prices are int64 ticks (1 tick = $0.01). This fixed-point representation
+avoids floating-point rounding errors and enables exact price comparison
 and reliable order-book indexing.
 
 The `OrderBook` is a pure data structure; the `MatchingEngine` is the
@@ -151,9 +170,15 @@ rested. Invariant: after any submit completes the book is never crossed.
     cmake --build build-release
     ./build-release/orderbook --benchmark
 
+The C++ core is dependency-free. The analysis scripts under `scripts/`
+(`sweep.py`, `plot_mm.py`) additionally need Python 3 with `pandas` and `matplotlib`.
+
 ## Simplifying assumptions
 
 Single security; strictly sequential order arrival; no latency, fees, or
-persistence; no self-trade prevention; no order modification; no hidden 
-liquidity; the simulator is naive random flow around a drifting reference 
-price, not a market model; only limit and market orders.
+persistence; no self-trade prevention; no order modification; no hidden
+liquidity; only limit and market orders. The REPL simulator is naive random
+flow around a drifting reference price, not a market model. In the mm-sim the
+market maker cancels and reposts every step (so it never holds queue priority),
+and the deep seeded liquidity anchors the observable mid, making it stickier
+than the latent fair value — both are candidate areas to make more realistic.
