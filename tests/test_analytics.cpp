@@ -125,3 +125,19 @@ TEST(vpin_is_high_for_one_sided_flow) {
     lob::Summary s = an.finalize(mm.fills());
     CHECK(s.vpin > 0.8);  // fully one-sided flow -> toxicity near 1
 }
+
+TEST(summary_to_json_has_keys_and_values) {
+    lob::Summary s;
+    s.fills = 7;
+    s.maxAbsInventory = 42;
+    s.finalPnlFair = 12.5;
+    s.adverseSelection = 3.25;
+    std::string j = lob::summaryToJson(s);
+    CHECK(!j.empty());
+    CHECK(j.front() == '{');
+    CHECK(j.back() == '}');
+    CHECK(j.find("\"fills\":7") != std::string::npos);            // integer, exact
+    CHECK(j.find("\"max_abs_inventory\":42") != std::string::npos);
+    CHECK(j.find("\"adverse_selection\":") != std::string::npos); // key present
+    CHECK(j.find("\"final_pnl_fair\":") != std::string::npos);
+}

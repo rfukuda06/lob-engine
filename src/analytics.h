@@ -74,4 +74,8 @@ private:
     bool havePrev_ = false;
 };
 
+// Serialize a Summary as a single-line JSON object (machine-readable output for
+// the sweep/plot tooling). Keys are snake_case; values are bare numbers.
+std::string summaryToJson(const Summary& s);
+
 }  // namespace lob

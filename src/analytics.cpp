@@ -204,6 +204,21 @@ void Analytics::printSummary(const Summary& s) const {
     std::printf("VPIN:                      %.4f\n", s.vpin);
 }
 
+std::string summaryToJson(const Summary& s) {
+    char buf[768];
+    std::snprintf(
+        buf, sizeof(buf),
+        "{\"final_pnl_mid\":%.6g,\"final_pnl_fair\":%.6g,\"fills\":%lld,"
+        "\"max_abs_inventory\":%lld,\"sharpe\":%.6g,"
+        "\"markout1\":%.6g,\"markout5\":%.6g,\"markout20\":%.6g,"
+        "\"effective_spread\":%.6g,\"realized_spread\":%.6g,"
+        "\"adverse_selection\":%.6g,\"kyle_lambda\":%.6g,\"vpin\":%.6g}",
+        s.finalPnlMid, s.finalPnlFair, s.fills, (long long)s.maxAbsInventory,
+        s.sharpe, s.markout1, s.markout5, s.markout20, s.effectiveSpread,
+        s.realizedSpread, s.adverseSelection, s.kyleLambda, s.vpin);
+    return std::string(buf);
+}
+
 void Analytics::writeCsv(const std::string& path) const {
     std::FILE* f = std::fopen(path.c_str(), "w");
     if (!f) return;
