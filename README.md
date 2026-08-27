@@ -7,71 +7,54 @@ orders against it. Limit orders rest in the book, market orders sweep the
 best available levels, and trades execute at the resting order's price with
 earlier orders at the same price filling first.
 
-There are two modes: an interactive REPL where you trade against a seeded 
-market simulator, and a benchmark that measures raw engine throughput —
-**16 million orders per second on a single core, about 62 ns per order.**
-Standard library only, no external dependencies.
+You can drive it three ways: an interactive REPL to trade against a seeded
+market by hand, a benchmark that clocks the engine at **16 million orders per
+second on a single core** (about 62 ns per order), and a market-making
+simulation. Standard library only, no external dependencies.
+
+That third mode is a **market-making and microstructure lab**: because a real
+book has queues, a spread, and passive fills, you can run a market maker inside
+it and measure *adverse selection*, the risk of providing liquidity, which an
+abstract backtest cannot show. The order book is the foundation; the lab is what
+it lets you study.
 
 ## Market-Making & Microstructure Lab
 
-Beyond matching orders, this project runs a **market maker inside its own book** and
-measures whether the strategy survives *adverse selection*, the core risk of providing
-liquidity. A latent "fair value" drifts exogenously; **informed** traders trade toward it
-and pick off stale quotes, while **noise** traders do not. The market maker (inventory-skew,
-or the **Avellaneda-Stoikov** optimal model) quotes off the observable book mid only. It
-never sees fair value, which is exactly why it can be picked off.
+Here is how it works. A hidden "fair value" drifts over time; **informed** traders
+can see it and pick off stale quotes, while **noise** traders cannot. The maker
+(inventory-skew, or the **Avellaneda-Stoikov** optimal model) quotes off the visible
+book mid only, never the fair value, which is exactly what leaves it exposed.
 
 ```bash
-# every strategy knob (gamma/sigma/kappa/skew-k/half-spread/max-inventory) is
-# tunable from the CLI; --json prints a machine-readable summary. See --help.
+# strategy knobs (gamma/sigma/kappa/skew-k/half-spread/max-inventory) and --json
+# output are all set from the CLI; see --help.
 ./build/orderbook --mm-sim 20000 --seed 42 --policy as --informed-frac 30 --out mm.csv
 ```
 
-Reported metrics:
-- **Markout PnL**: a fill's PnL measured a few steps later against fair value; negative means adverse selection.
-- **Effective vs. realized spread**: taker cost vs. maker capture net of impact; the gap between them *is* adverse selection.
-- **Kyle's λ**: price impact per unit of signed order flow.
-- **VPIN**: volume-bucketed order-flow toxicity.
+Turning up the fraction of **informed** flow is the whole experiment. Averaged
+over 12 seeds (inventory-skew maker, 20000 steps; ± is standard error):
 
-The CSV has one row per step (fair, mid, microprice, inventory, PnL, and more); `scripts/plot_mm.py` turns it into the figure below.
-
-### Sample result: the adverse-selection gradient
-
-Turning up the fraction of **informed** flow is the whole experiment. Averaged over
-12 seeds (inventory-skew maker, 20000 steps; ± is standard error across seeds):
-
-| Informed flow | MM fills | Final PnL vs. fair (ticks·shares) | Adverse selection (ticks) | Max \|inventory\| |
+| Informed flow | MM fills | PnL vs. fair (ticks·shares) | Adverse selection (ticks) | Max \|inventory\| |
 |---|---|---|---|---|
 | 0% (pure noise) | 872 ± 34 | **+4024 ± 175** | 0.2 ± 0.0 | 6 ± 0 |
 | 15% | 934 ± 248 | -827 ± 3009 | 17.2 ± 4.1 | 44 ± 5 |
 | 30% | 182 ± 33 | +518 ± 2762 | 49.3 ± 11.7 | 50 ± 2 |
 
-The error bars *are* the result:
-- **Adverse selection rises sharply and reliably** with informed flow (0.2 to 17 to 49 ticks), a robust, monotone gradient.
-- **Under pure noise the maker cleanly captures the spread** (+4024 ± 175) while barely carrying inventory.
-- **Under toxic flow, terminal PnL is dominated by inventory risk**: the standard error dwarfs the mean, so any single seeded run is an unreliable read. That uncertainty *is* the risk of quoting into informed flow.
-
-Here is one run of the lab (`--seed 3 --informed-frac 10`): the maker profitably captures
-spread against light toxic flow, its inventory mean-reverting via skew.
+Adverse selection climbs sharply and reliably with informed flow. Under pure
+noise the maker cleanly earns the spread; under toxic flow its PnL is swamped by
+inventory risk (the error bars dwarf the mean), which is exactly why quoting into
+informed traders is dangerous.
 
 ![Market-making lab overview](docs/mm_overview.png)
 
-The top-left panel is the thesis in one picture: the latent **fair value wanders, the
-observable book mid is much stickier, and the maker only ever sees the mid**. The gap
-between the two lines is its information disadvantage.
+One run at light informed flow. The whole idea is in the top-left panel: fair
+value wanders, the observable mid is far stickier, and the maker only ever sees
+the mid, so that gap is its information disadvantage.
 
-Regenerate the table and figure (numbers are seed- and machine-specific):
-
-```bash
-python3 scripts/sweep.py --policy inventory --steps 20000 --seeds 12          # the table
-./build/orderbook --mm-sim 20000 --seed 3 --policy inventory --informed-frac 10 --out mm.csv
-python3 scripts/plot_mm.py mm.csv --out docs/mm_overview.png                   # the figure
-```
-
-### Why this is different from a "trading bot"
-This is a **market-microstructure** study on a hand-built order book (passive quoting,
-queue dynamics, adverse selection), not a directional alpha strategy. It deliberately
-keeps strategy/PnL plumbing thin; the focus is what only a real order book can show.
+It reports markout PnL, effective vs. realized spread (their gap *is* adverse
+selection), Kyle's λ (price impact per unit of signed flow), and VPIN (order-flow
+toxicity). `scripts/plot_mm.py` charts the per-step CSV and `scripts/sweep.py`
+regenerates the table above.
 
 ## Interactive REPL
 
@@ -160,17 +143,23 @@ rested. Invariant: after any submit completes the book is never crossed.
 
     brew install cmake                # once
     cmake -B build && cmake --build build
-    ./build/orderbook_tests           # 30 tests
+    ./build/orderbook_tests           # engine + microstructure tests
     ./build/orderbook                 # interactive REPL
+    ./build/orderbook --mm-sim 20000 --policy as --informed-frac 30 --out mm.csv
 
     # benchmark (use an optimized build for numbers)
     cmake -B build-release -DCMAKE_BUILD_TYPE=Release
     cmake --build build-release
     ./build-release/orderbook --benchmark
 
+The C++ core has no dependencies. The analysis scripts in `scripts/`
+(`sweep.py`, `plot_mm.py`) need Python 3 with `pandas` and `matplotlib`.
+
 ## Simplifying assumptions
 
 Single security; strictly sequential order arrival; no latency, fees, or
-persistence; no self-trade prevention; no order modification; no hidden 
-liquidity; the simulator is naive random flow around a drifting reference 
-price, not a market model; only limit and market orders.
+persistence; no self-trade prevention; no order modification; no hidden
+liquidity; only limit and market orders. The REPL's flow is naive random order
+generation, not a market model. In the lab the maker reposts every step (so it
+never keeps queue priority), and deep seeded liquidity anchors the observable
+mid, making it stickier than the fair value; both are areas to make more realistic.
