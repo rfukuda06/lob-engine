@@ -25,6 +25,12 @@ def render(csv_path: str, out_path: str, ofi_window: int) -> None:
     df = pd.read_csv(csv_path)
     if df.empty:
         raise SystemExit(f"{csv_path}: no rows to plot")
+    required = {"t", "fair", "mid", "microprice", "pnl_mid", "pnl_fair",
+                "inventory", "ofi"}
+    missing = required - set(df.columns)
+    if missing:
+        raise SystemExit(f"{csv_path}: missing columns {sorted(missing)} "
+                         f"(expected a per-step CSV from orderbook --mm-sim ... --out)")
 
     t = df["t"]
     fig, axes = plt.subplots(2, 2, figsize=(13, 8), sharex=True)

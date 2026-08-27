@@ -1,5 +1,6 @@
 #include <cctype>
 #include <cerrno>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -55,6 +56,7 @@ std::optional<double> parseDouble(const char* text) {
     errno = 0;
     double v = std::strtod(s.c_str(), &end);
     if (end != s.c_str() + s.size() || errno != 0) return std::nullopt;  // trailing junk / range
+    if (!std::isfinite(v)) return std::nullopt;  // reject nan / inf
     return v;
 }
 
@@ -128,6 +130,11 @@ int main(int argc, char** argv) {
             printUsage();
             return std::strcmp(argv[i], "--help") == 0 ? 0 : 1;
         }
+    }
+
+    if (jsonMode && !mmSim) {  // --json only produces output in the mm-sim path
+        printUsage();
+        return 1;
     }
 
     if (mmSim) {

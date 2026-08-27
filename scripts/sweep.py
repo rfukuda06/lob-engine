@@ -26,7 +26,10 @@ def run_one(binary: str, steps: int, seed: int, policy: str, informed: int) -> d
     """Run the sim once and return its parsed JSON summary."""
     cmd = [binary, "--mm-sim", str(steps), "--seed", str(seed),
            "--policy", policy, "--informed-frac", str(informed), "--json"]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+    except (FileNotFoundError, PermissionError, OSError) as e:
+        raise SystemExit(f"cannot run binary {binary!r}: {e} (build it first, or pass --binary)")
     if proc.returncode != 0:
         raise SystemExit(f"binary failed ({proc.returncode}) for seed={seed} "
                          f"informed={informed}:\n{proc.stderr or proc.stdout}")
@@ -54,6 +57,8 @@ def main() -> int:
     p.add_argument("--seed-base", type=int, default=1, help="first seed (uses base..base+seeds-1)")
     p.add_argument("--out", default="docs/sweep_results.csv", help="tidy results CSV")
     args = p.parse_args()
+    if args.seeds < 1:
+        raise SystemExit("--seeds must be >= 1")
 
     seeds = list(range(args.seed_base, args.seed_base + args.seeds))
     rows = []          # one aggregated row per informed fraction
