@@ -12,50 +12,6 @@ market by hand, a benchmark that clocks the engine at **16 million orders per
 second on a single core** (about 62 ns per order), and a market-making
 simulation. Standard library only, no external dependencies.
 
-That third mode is a **market-making and microstructure lab**: because a real
-book has queues, a spread, and passive fills, you can run a market maker inside
-it and measure *adverse selection*, the risk of providing liquidity, which an
-abstract backtest cannot show. The order book is the foundation; the lab is what
-it lets you study.
-
-## Market-Making & Microstructure Lab
-
-Here is how it works. A hidden "fair value" drifts over time; **informed** traders
-can see it and pick off stale quotes, while **noise** traders cannot. The maker
-(inventory-skew, or the **Avellaneda-Stoikov** optimal model) quotes off the visible
-book mid only, never the fair value, which is exactly what leaves it exposed.
-
-```bash
-# strategy knobs (gamma/sigma/kappa/skew-k/half-spread/max-inventory) and --json
-# output are all set from the CLI; see --help.
-./build/orderbook --mm-sim 20000 --seed 42 --policy as --informed-frac 30 --out mm.csv
-```
-
-Turning up the fraction of **informed** flow is the whole experiment. Averaged
-over 12 seeds (inventory-skew maker, 20000 steps; ± is standard error):
-
-| Informed flow | MM fills | PnL vs. fair (ticks·shares) | Adverse selection (ticks) | Max \|inventory\| |
-|---|---|---|---|---|
-| 0% (pure noise) | 872 ± 34 | **+4024 ± 175** | 0.2 ± 0.0 | 6 ± 0 |
-| 15% | 934 ± 248 | -827 ± 3009 | 17.2 ± 4.1 | 44 ± 5 |
-| 30% | 182 ± 33 | +518 ± 2762 | 49.3 ± 11.7 | 50 ± 2 |
-
-Adverse selection climbs sharply and reliably with informed flow. Under pure
-noise the maker cleanly earns the spread; under toxic flow its PnL is swamped by
-inventory risk (the error bars dwarf the mean), which is exactly why quoting into
-informed traders is dangerous.
-
-![Market-making lab overview](docs/mm_overview.png)
-
-One run at light informed flow. The whole idea is in the top-left panel: fair
-value wanders, the observable mid is far stickier, and the maker only ever sees
-the mid, so that gap is its information disadvantage.
-
-It reports markout PnL, effective vs. realized spread (their gap *is* adverse
-selection), Kyle's λ (price impact per unit of signed flow), and VPIN (order-flow
-toxicity). `scripts/plot_mm.py` charts the per-step CSV and `scripts/sweep.py`
-regenerates the table above.
-
 ## Interactive REPL
 
 Running `./build/orderbook` drops you into a REPL against a simulated market
@@ -138,6 +94,49 @@ Matching rules: trades execute at the resting (maker) order's price, so price
 improvement goes to the incoming order; partially filled resting orders keep
 their queue position; an unfilled market-order remainder is cancelled, never
 rested. Invariant: after any submit completes the book is never crossed.
+
+## Market-Making & Microstructure Lab
+
+Because a real order book has queues, a spread, and passive fills, you can run a
+market maker inside it and measure *adverse selection*, the core risk of providing
+liquidity. That is something an abstract backtest cannot show; the order book is
+the foundation, and this lab is what it lets you study.
+
+Here is how it works. A hidden "fair value" drifts over time; **informed** traders
+can see it and pick off stale quotes, while **noise** traders cannot. The maker
+(inventory-skew, or the **Avellaneda-Stoikov** optimal model) quotes off the visible
+book mid only, never the fair value, which is exactly what leaves it exposed.
+
+```bash
+# strategy knobs (gamma/sigma/kappa/skew-k/half-spread/max-inventory) and --json
+# output are all set from the CLI; see --help.
+./build/orderbook --mm-sim 20000 --seed 42 --policy as --informed-frac 30 --out mm.csv
+```
+
+Turning up the fraction of **informed** flow is the whole experiment. Averaged
+over 12 seeds (inventory-skew maker, 20000 steps; ± is standard error):
+
+| Informed flow | MM fills | PnL vs. fair (ticks·shares) | Adverse selection (ticks) | Max \|inventory\| |
+|---|---|---|---|---|
+| 0% (pure noise) | 872 ± 34 | **+4024 ± 175** | 0.2 ± 0.0 | 6 ± 0 |
+| 15% | 934 ± 248 | -827 ± 3009 | 17.2 ± 4.1 | 44 ± 5 |
+| 30% | 182 ± 33 | +518 ± 2762 | 49.3 ± 11.7 | 50 ± 2 |
+
+Adverse selection climbs sharply and reliably with informed flow. Under pure
+noise the maker cleanly earns the spread; under toxic flow its PnL is swamped by
+inventory risk (the error bars dwarf the mean), which is exactly why quoting into
+informed traders is dangerous.
+
+![Market-making lab overview](docs/mm_overview.png)
+
+One run at light informed flow. The whole idea is in the top-left panel: fair
+value wanders, the observable mid is far stickier, and the maker only ever sees
+the mid, so that gap is its information disadvantage.
+
+It reports markout PnL, effective vs. realized spread (their gap *is* adverse
+selection), Kyle's λ (price impact per unit of signed flow), and VPIN (order-flow
+toxicity). `scripts/plot_mm.py` charts the per-step CSV and `scripts/sweep.py`
+regenerates the table above.
 
 ## Build & run
 
