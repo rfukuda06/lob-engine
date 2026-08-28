@@ -1,5 +1,7 @@
 # Limit Order Book & Matching Engine
 
+*A C++ matching engine, with a market-making and microstructure lab built on top of it.*
+
 This is a single-threaded C++20 implementation of the two pieces at the
 heart of every electronic exchange: a limit order book that holds resting 
 orders in price-time priority and a matching engine that crosses incoming 
@@ -129,7 +131,7 @@ informed traders is dangerous.
 
 ![Market-making lab overview](docs/mm_overview.png)
 
-One run at light informed flow. The whole idea is in the top-left panel: fair
+The figure shows a single run at light informed flow. The whole idea is in the top-left panel: fair
 value wanders, the observable mid is far stickier, and the maker only ever sees
 the mid, so that gap is its information disadvantage.
 
