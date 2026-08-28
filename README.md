@@ -8,8 +8,8 @@ best available levels, and trades execute at the resting order's price with
 earlier orders at the same price filling first.
 
 You can drive it three ways: an interactive REPL to trade against a seeded
-market by hand, a benchmark that clocks the engine at **16 million orders per
-second on a single core** (about 62 ns per order), and a market-making
+market by hand, a benchmark that clocks the engine at 16 million orders per
+second on a single core (about 62 ns per order), and a market-making
 simulation. Standard library only, no external dependencies.
 
 ## Interactive REPL
@@ -53,8 +53,8 @@ are tagged `(you)` in the trade tape.
 
 ## Performance
 
-The matching engine sustains **16 million orders per second on a single
-core — roughly 62 nanoseconds per order** — including matching, resting,
+The matching engine sustains 16 million orders per second on a single
+core — roughly 62 nanoseconds per order — including matching, resting,
 and all cancel-index bookkeeping:
 
     Orders processed:  1000000
@@ -97,28 +97,28 @@ rested. Invariant: after any submit completes the book is never crossed.
 
 ## Market-Making & Microstructure Lab
 
-Because a real order book has queues, a spread, and passive fills, you can run a
-market maker inside it and measure *adverse selection*, the core risk of providing
-liquidity. That is something an abstract backtest cannot show; the order book is
-the foundation, and this lab is what it lets you study.
+A real order book, with its queues, spread, and passive fills, can host a market
+maker and expose *adverse selection*, the core risk of providing liquidity, in a
+way an abstract backtest cannot. The order book is the foundation; this lab is what
+it makes possible.
 
-Here is how it works. A hidden "fair value" drifts over time; **informed** traders
-can see it and pick off stale quotes, while **noise** traders cannot. The maker
-(inventory-skew, or the **Avellaneda-Stoikov** optimal model) quotes off the visible
-book mid only, never the fair value, which is exactly what leaves it exposed.
+A hidden "fair value" drifts over time. Informed traders observe it and pick
+off stale quotes; noise traders do not. The maker (inventory-skew, or the
+Avellaneda-Stoikov optimal model) quotes off the visible book mid alone, never
+the fair value, which is precisely what leaves it exposed.
 
 ```bash
-# strategy knobs (gamma/sigma/kappa/skew-k/half-spread/max-inventory) and --json
+# strategy parameters (gamma/sigma/kappa/skew-k/half-spread/max-inventory) and --json
 # output are all set from the CLI; see --help.
 ./build/orderbook --mm-sim 20000 --seed 42 --policy as --informed-frac 30 --out mm.csv
 ```
 
-Turning up the fraction of **informed** flow is the whole experiment. Averaged
+The experiment hinges on one variable, the fraction of informed flow. Averaged
 over 12 seeds (inventory-skew maker, 20000 steps; ± is standard error):
 
 | Informed flow | MM fills | PnL vs. fair (ticks·shares) | Adverse selection (ticks) | Max \|inventory\| |
 |---|---|---|---|---|
-| 0% (pure noise) | 872 ± 34 | **+4024 ± 175** | 0.2 ± 0.0 | 6 ± 0 |
+| 0% (pure noise) | 872 ± 34 | +4024 ± 175 | 0.2 ± 0.0 | 6 ± 0 |
 | 15% | 934 ± 248 | -827 ± 3009 | 17.2 ± 4.1 | 44 ± 5 |
 | 30% | 182 ± 33 | +518 ± 2762 | 49.3 ± 11.7 | 50 ± 2 |
 
