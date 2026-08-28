@@ -97,10 +97,10 @@ rested. Invariant: after any submit completes the book is never crossed.
 
 ## Market-Making & Microstructure Lab
 
-A real order book, with its queues, spread, and passive fills, can host a market
-maker and expose *adverse selection*, the core risk of providing liquidity, in a
-way an abstract backtest cannot. The order book is the foundation; this lab is what
-it makes possible.
+Because a real order book has queues, a spread, and passive fills, you can run a
+market maker inside it and measure *adverse selection*, the core risk of providing
+liquidity. That is something an abstract backtest cannot show. The order book is
+the foundation; this lab is what it makes possible.
 
 A hidden "fair value" drifts over time. Informed traders observe it and pick
 off stale quotes; noise traders do not. The maker (inventory-skew, or the
