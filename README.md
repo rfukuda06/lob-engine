@@ -42,7 +42,7 @@ Running `./build/orderbook` drops you into a REPL against a simulated market
     ============================================
 
 Each row is a price level: aggregate resting quantity and (order count).
-Asks print worst-first so the best ask sits nearest the spread; your fills
+Asks print worst-first so the best ask sits nearest the spread. Your fills
 are tagged `(you)` in the trade tape.
 
 ## Commands
@@ -75,7 +75,7 @@ Prices are int64 ticks (1 tick = $0.01). This fixed-point representation
 avoids floating-point rounding errors and enables exact price comparison 
 and reliable order-book indexing.
 
-The `OrderBook` is a pure data structure; the `MatchingEngine` is the
+The `OrderBook` is a pure data structure. The `MatchingEngine` is the
 algorithm that runs against it:
 
 - Bids: `std::map<Price, PriceLevel, std::greater<>>` — best bid is `begin()`
@@ -102,10 +102,10 @@ rested. Invariant: after any submit completes the book is never crossed.
 Because a real order book has queues, a spread, and passive fills, you can run a
 market maker inside it and measure *adverse selection*, the core risk of providing
 liquidity. That is something an abstract backtest cannot show. The order book is
-the foundation; this lab is what it makes possible.
+the foundation, and this lab is what it makes possible.
 
 A hidden "fair value" drifts over time. Informed traders observe it and pick
-off stale quotes; noise traders do not. The maker (inventory-skew, or the
+off stale quotes, while noise traders do not. The maker (inventory-skew, or the
 Avellaneda-Stoikov optimal model) quotes off the visible book mid alone, never
 the fair value, which is precisely what leaves it exposed.
 
@@ -125,7 +125,7 @@ over 12 seeds (inventory-skew maker, 20000 steps; ± is standard error):
 | 30% | 182 ± 33 | +518 ± 2762 | 49.3 ± 11.7 | 50 ± 2 |
 
 Adverse selection climbs sharply and reliably with informed flow. Under pure
-noise the maker cleanly earns the spread; under toxic flow its PnL is swamped by
+noise the maker cleanly earns the spread, but under toxic flow its PnL is swamped by
 inventory risk (the error bars dwarf the mean), which is exactly why quoting into
 informed traders is dangerous.
 
@@ -163,4 +163,4 @@ persistence; no self-trade prevention; no order modification; no hidden
 liquidity; only limit and market orders. The REPL's flow is naive random order
 generation, not a market model. In the lab the maker reposts every step (so it
 never keeps queue priority), and deep seeded liquidity anchors the observable
-mid, making it stickier than the fair value; both are areas to make more realistic.
+mid, making it stickier than the fair value. Both are areas to make more realistic.
